@@ -6,5 +6,5 @@ This repository contains small R markdown scripts with diverse workflows for mod
 The libraries that need to be loaded are called in the beginning of each script.
 For more specific details regarding the software and packege versions that were tested, please see the section "Parameters and software versions" at the end of the example html reports.
 
-The dataset that was used to generate the example html reports originates from the 10x dataset "1k Peripheral blood mononuclear cells (PBMCs)" (https://support.10xgenomics.com/single-cell-gene-expression/datasets/3.0.0/pbmc_1k_v3). This dataset was used to create two artifical samples (sample1 and sample2) with 250 cells and 6000 genes each in a project called pbmc_small and process is utilizing the crnaseq script https://github.com/ktrns/scrnaseq.
+The dataset that was used to generate the example html reports originates from the 10x dataset "1k Peripheral blood mononuclear cells (PBMCs)" (https://support.10xgenomics.com/single-cell-gene-expression/datasets/3.0.0/pbmc_1k_v3). This dataset was used to create two artifical samples (sample1 and sample2) with 250 cells and 6000 genes each in a project called pbmc_small and process is utilizing the scrnaseq script https://github.com/ktrns/scrnaseq.
 
