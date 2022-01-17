@@ -1,0 +1,252 @@
+---
+title: "Annotation with reference"
+author: "[Research Core Unit Genomics, Hannover Medical School](https://www.mhh.de/genomics)"
+date: "`r format(Sys.time(), '%B, %Y')`"
+geometry: margin=2cm
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    code_folding: hide
+    highlight: tango
+    theme: paper
+---
+
+```{r setup, warning=FALSE, message=FALSE}
+# R Options
+options(stringsAsFactors=FALSE,
+        dplyr.summarise.inform=FALSE, 
+        knitr.table.format="html",
+        kableExtra_view_html=TRUE,
+        future.globals.maxSize=2000000000, mc.cores=1, 
+        future.fork.enable=TRUE, future.plan="multicore",
+        future.rng.onMisuse="ignore")
+
+# Required libraries
+library(Seurat)
+library(celldex)
+library(clustifyrdatahub)
+library(SingleR)
+library(clustifyr)
+library(pheatmap)
+library(patchwork)
+library(magrittr)
+library(ggplot2)
+
+# Knitr default options
+knitr::opts_chunk$set(echo=TRUE,                     # output code
+                      cache=FALSE,                   # do not cache results
+                      message=TRUE,                  # show messages
+                      warning=TRUE,                  # show warnings
+                      tidy=FALSE,                    # do not auto-tidy-up code
+                      fig.width=10,                  # default fig width in inches
+                      class.source='fold-hide',      # by default collapse code blocks
+                      dev=c('png', 'pdf'),           # create figures in png and pdf; the first device (png) will be used for HTML output
+                      dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
+                                    pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
+                      dpi=96,                        # figure resolution
+                      fig.retina=2                   # retina multiplier
+)
+```
+
+```{r project_parameters, warning=FALSE, message=FALSE}
+# Load Seurat S4 object; output of scrnaseq script https://github.com/ktrns/scrnaseq
+load("/mnt/ngsnfs/single_cell_dev/users/kosankem/Scripts/testset/scrnaseq.RData")
+
+
+# Load reference datasets
+
+# Reference dataset obtained from celldex for singleR
+# https://bioconductor.org/packages/3.14/data/experiment/vignettes/celldex/inst/doc/userguide.html
+# Paste reference dataset name
+ref = HumanPrimaryCellAtlasData()
+ref_name = "HumanPrimaryCellAtlasData"
+
+# Reference from clustifyrdatahub
+# List https://rnabioco.github.io/clustifyrdata/articles/download_refs.html
+# Paste reference dataset name
+ref2 = clustifyrdatahub::ref_hema_microarray()
+ref2_name = "ref_hema_microarray"
+```
+# Dataset description
+ 
+Single cell transcriptomes can be difficult to annotate without extensive knowledge of the underlying biology. Given a reference dataset (of samples from single-cell or bulk RNA sequencing) with known labels, it is possible to assign labels to the cells from a test dataset based on similarity to that reference. Hence, the biological knowledge (defined marker genes and cluster identities) can be propagated from the reference dataset to the test dataset in an automated manner and aid in cluster identification.  
+
+Here, we performed cell type annotation for the samples `r param$path_data$name` of the project `r param$project_id` with reference datasets obtained from databases. We use the S4 class object generated in the Main-Report "Single-cell RNA-seq data analysis" and convert it to a SingleCellExperiment class object. We use two different Tools (SingleR and Clustifyr) and reference datasets for the cluster annotation.
+```{r generate_cds_oject, warning=FALSE, message=FALSE}
+# Convert to SingleCellExperiment object
+sce = as.SingleCellExperiment(sc)
+
+# Add gene_short_name to cds object
+rowData(sce)$gene_short_name = rownames(sce)
+
+sc
+sce
+```
+<br />
+<br />
+
+# Annotation with SingleR
+Cells or clusters were annotated with reference dataset `r ref_name` obtained from celldex (https://bioconductor.org/packages/3.14/data/experiment/vignettes/celldex/inst/doc/userguide.html). The celldex package provides access to several reference datasets (mostly derived from bulk RNA-seq or microarray data).
+```{r singleR, warning=FALSE, message=FALSE}
+# Annotate cells and clusters using SingleR with reference dataset form celldex
+sce_ann_cells = SingleR(test = sce, ref = ref, assay.type.test = 1, labels = ref$label.fine)
+sce_ann_clusters = SingleR(test = sce, ref = ref, assay.type.test = 1, labels = ref$label.fine, clusters = sce$seurat_clusters)
+
+annotated_cells = table(sce_ann_cells$labels)
+annotated_clusters = table(sce_ann_clusters$labels)
+
+sc[["SingleR.labels"]] = sce_ann_cells$labels
+sc[["SingleR.cluster.labels"]] = sce_ann_clusters$labels[match(sc[[]][["seurat_clusters"]], rownames(sce_ann_clusters))]
+
+```
+
+## Annotation of single cells
+UMAPs display cells colored by Seurat clusters and cell types annotated by SingleR. Annotation was performed for each cell. The annotation of each cell is more sensitive, but also more prone to artefacts compared to the annotation of clusters as performed in later steps. Here, we perform annotation of single cells for annotation diagnostics, that means for assessment of the reliability of cell type annotation and how close all cells resemble the cell types of the reference dataset. 
+```{r singleR_cells, fig.height=4, warning=FALSE, message=FALSE}
+# Visualization of singleR annotation of cells
+p1 = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters", pt.size=param$pt_size) + 
+  scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
+  AddStyle(title="Clusters", xlab = "UMAP 1", ylab = "UMAP 2") +
+  theme(title = element_text(size = 10)) +
+  NoGrid() + 
+  NoLegend()
+p1 = LabelClusters(p1, id="seurat_clusters")
+
+p2 = Seurat::DimPlot(sc, reduction="umap", group.by="SingleR.labels", pt.size=param$pt_size) + 
+  AddStyle(title="Cell types \n(annotation per cell)", xlab = "UMAP 1", ylab = "UMAP 2", legend_position="right", legend_title="Cell types") +
+  theme(title = element_text(size = 10)) +
+  NoGrid()
+
+p = p1 + p2
+p
+
+knitr::kable(annotated_cells, align="l", caption="Cell types assigned to cells") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) 
+```
+<br />
+
+## Annotation diagnostics
+Heatmap displays the scores for all cells across all reference labels, allowing to assess the confidence of the corresponding predicted labels. Ideally, each cell should have one score that is distinctively higher than the rest, indicating that an unambiguous assignment.
+```{r annotation_diagnostics_heatmap, warning=FALSE, message=FALSE}
+# Annotation diagnostics
+# https://bioconductor.org/packages/devel/bioc/vignettes/SingleR/inst/doc/SingleR.html
+
+p = plotScoreHeatmap(sce_ann_cells)
+p
+```
+<br />
+<br />
+
+Plot displaying per-cell “deltas” (the difference between the score for the assigned label and the median across all labels). Low deltas indicate that the assignment is uncertain. The minimum threshold on the deltas is defined using an outlier-based approach. Yellow marked points represents outliers that fell below the threshold.
+```{r annotation_diagnostics_deltas, fig.height=16, warning=FALSE, message=FALSE}
+# Annotation diagnostics
+p = plotDeltaDistribution(sce_ann_cells, ncol = 3)
+p
+
+number_pruned_table = table(is.na(sce_ann_cells$pruned.labels))
+number_pruned_table[3]=round((number_pruned_table[1]/(number_pruned_table[1]+number_pruned_table[2])*100),2)
+number_pruned_table[4]=round((number_pruned_table[2]/(number_pruned_table[1]+number_pruned_table[2])*100),2)
+names(number_pruned_table) = c("assigned", "ambiguous", "% assigned", "% ambiguous")
+
+number_pruned_table = (t(number_pruned_table))
+knitr::kable(number_pruned_table, align="l", caption="Number of annotated cells") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) 
+```
+<br />
+
+## Annotation of clusters
+UMAPs display cells colored by Seurat clusters and cell types annotated by SingleR. Annotation was performed for each cluster as unit.
+```{r singleR_clusters, fig.height=4, warning=FALSE, message=FALSE}
+# Visualization of singleR annotation of clusters
+p1 = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters", pt.size=param$pt_size) + 
+  scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
+  AddStyle(title="Clusters", xlab = "UMAP 1", ylab = "UMAP 2") +
+  theme(title = element_text(size = 10)) +
+  NoGrid() + 
+  NoLegend()
+p1 = LabelClusters(p1, id="seurat_clusters")
+
+p2 = Seurat::DimPlot(sc, reduction="umap", group.by="SingleR.cluster.labels", pt.size=param$pt_size) + 
+  AddStyle(title="Cell types \n(annotation per cluster)", xlab = "UMAP 1", ylab = "UMAP 2", legend_position="right", legend_title="Cell types") +
+  theme(title = element_text(size = 10)) +
+  NoGrid()
+
+p = p1 + p2
+p
+
+knitr::kable(annotated_clusters, align="l", caption="Cell types assigned to clusters") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+```{r singleR_clusters_separately, fig.height=4}
+# Visualization of singleR annotation of clusters separately per sample
+p = Seurat::DimPlot(sc, reduction="umap", group.by="SingleR.cluster.labels", split.by = "orig.ident", pt.size=param$pt_size) + 
+  AddStyle(title="Cell types \n(annotation per cluster)", xlab = "UMAP 1", ylab = "UMAP 2", legend_position="right", legend_title="Cell types") +
+  theme(title = element_text(size = 10)) +
+  NoGrid()
+p
+```
+<br />
+<br />
+<br />
+
+# Annotation with Clustifyr
+Cells or clusters were annotated with reference dataset `r ref2_name` obtained from clustifyrdatahub (https://rnabioco.github.io/clustifyrdata/articles/download_refs.html). Clustifyrdata provides 42 external data sets for cell-type assignment with Clustifyr.
+## Annotation of clusters
+UMAPs display cells colored by Seurat clusters and cell types annotated by Clustifyr. Annotation was performed for each cluster as unit.
+```{r clustifyr, fig.height=4, warning=FALSE, message=FALSE}
+# Annotate clusters using Clustifyr with reference dataset form clustifyrdatahub
+sc = clustify(sc, ref_mat = ref2, cluster_col = "seurat_clusters", query_genes = VariableFeatures(sc))
+
+# Visualization of Clustifyr annotation of clusters
+p1 = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters", pt.size=param$pt_size) + 
+  scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
+  AddStyle(title="Clusters", xlab = "UMAP 1", ylab = "UMAP 2") +
+  theme(title = element_text(size = 10)) +
+  NoGrid() + 
+  NoLegend()
+p1 = LabelClusters(p1, id="seurat_clusters")
+
+p2 = Seurat::DimPlot(sc, reduction="umap", group.by="type", pt.size=param$pt_size) + 
+  AddStyle(title="Cell types \n(annotation per cluster)", xlab = "UMAP 1", ylab = "UMAP 2", legend_position="right", legend_title="Cell types") +
+  theme(title = element_text(size = 10)) +
+  NoGrid()
+p = p1 + p2
+p
+
+annotated_clusters = table(sc$type)
+knitr::kable(annotated_clusters, align="l", caption="Cell types assigned to cells") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+  
+```{r clustifyr_separately, fig.height=4}
+# Visualization of Clustifyr annotation of cells separately per sample
+p = Seurat::DimPlot(sc, reduction="umap", group.by="type", split.by = "orig.ident", pt.size=param$pt_size) + 
+  AddStyle(title="Cell types \n(annotation per cell)", xlab = "UMAP 1", ylab = "UMAP 2", legend_position="right", legend_title="Cell types") +
+  theme(title = element_text(size = 10)) +
+  NoGrid()
+p
+```
+<br />
+<br />
+
+# Parameters and software versions
+The following parameters were used to run the workflow.  
+```{r parameters_table}
+out = ScrnaseqParamsInfo(params=param)
+
+knitr::kable(out, align="l") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
+```
+
+
+This report was created with generated using the scrnaseq_add_condition_comparison script. Software versions were collected at run time. 
+```{r versions, message=FALSE}
+out = ScrnaseqSessionInfo(param$path_to_git)
+
+knitr::kable(out, align="l") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+```
+
