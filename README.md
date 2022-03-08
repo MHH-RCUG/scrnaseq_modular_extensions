@@ -1,4 +1,6 @@
 # scrnaseq_modular_extensions
+Maike Kosanke, 2021-2022
+
 UNDER DEVELOPMENT: Workflows for modular extensions of single-cell RNA-seq analysis performed with the scrnaseq script https://github.com/ktrns/scrnaseq 
 
 This repository contains small R markdown scripts with diverse workflows for modular extensions of single-cell RNA-seq analysis performed with the scrnaseq script https://github.com/ktrns/scrnaseq. That means, all scripts use the output of the scrnaseq script and perform additional analysis such as cluster annotation with reference using SingleR and Clustifyr or pseudotime analysis via Monocle 3 upon it with the results being returned as html report.  
